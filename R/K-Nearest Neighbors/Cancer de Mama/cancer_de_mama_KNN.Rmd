@@ -1,0 +1,311 @@
+---
+title: "KNN_cancer_de_mama"
+output: html_notebook
+---
+
+
+# Introdução
+
+### Sobre a base de dados
+
+A base de dados utilizar nesse projeto foi disponibilizada no repositório de machine learning da Universidade da Califórnia, Irvine (UCI).
+O dataset apresentado traz dados reais obtidos em testes em células provenientes de biópsias de nódulos mamários com anomalias. A utilização dessa base é interessante, pois representa a significância que o aprendizado de máquina e a estatística podem ter em aplicações na área médica.
+
+Mais detalhes sobre a base de dados e também sobre as variáveis, podem ser encontrados nesse [LINK](http://archive.ics.uci.edu/ml/datasets/Breast+Cancer+Wisconsin+%28Diagnostic%29)
+
+
+# Pacotes e arquivos
+
+### Ativação dos pacotes
+
+```{r bibliotecas}
+#pacote com funções para classificação
+library(class)
+library(gmodels)
+library(ggplot2)
+```
+
+### Leitura do arquivo
+
+```{r leitura de arquivos}
+dados <- read.csv('https://raw.githubusercontent.com/AlysterF/KNN_cancer_de_mama/main/database/bc_data.csv')
+```
+
+
+# Análise Exploratória
+
+### Quais dados existem nessa base?
+
+É importante conhecer os dados com os quais estamos trabalhando. Então essa é a hora de perguntar: que informações existem aqui? Como esses dados estão distribuídos? Há um equilíbrio nos dados em relação a variável target?
+A exploração de dados é o passo inicial para que possamos deixar tudo pronto para que o modelo de machine learning possa nos ajudar a prever respostas. Se os dados estão limpos e tratados, teremos um modelo mais assertivo.
+
+
+Com o comando abaixo, é possível visualizar as primeiras seis linhas do dataframe, o que auxilia a compreender como os dados estão apresentados.
+
+```{r head}
+
+#Visualização das primeiras 6 linhas do dataframe
+head(dados)
+
+```
+
+Já o comando str nos apresenta os formatos em que os dados estão no dataframe, assim, é possível identificar quais variáveis são texto, números e etc.
+
+```{r descricao}
+#Descrição do formato das variáveis    
+str(dados)
+```
+A grande maioria dos dados está em valor numérico, com exeção da variável diagnosis que é char/caractere.
+Os dados nesse formato estão conforme o esperado.
+
+
+O comando summary exibe um resumo estatístico de todas as variáveis do dataframe.
+
+```{r resumo estatisco}
+
+#Resumo estatístico das variáveis    
+summary(dados)
+
+```
+
+### Correções do dataframe
+
+Perceba que nos resultados apresentados anteriormente, a variável id não parece fazer muito sentido para nossas análises estatísticas, então o ideal é que a variável id seja removida.
+
+```{r remover id}
+
+#Remoção da primeira coluna do dataframe.
+dados <- dados[-1]
+head(dados)
+```
+
+A variável diagnosis, apesar de ter sido apresentada corretamente, seria mais interessante se fossem apresentadas as quantidades de cada valor possível dentro dessa variável.
+
+```{r proporção de valores diagnosis}
+
+#proporção de valores da variável diagnosis
+table(dados$diagnosis)
+
+```
+Existem 2 valores diferentes na coluna diagnosis. É possível categorizar esses dados, para que quando as análises estatísticas sejam feitas, os dados sejam considerados como tendo 2 níveis (B e M). Isso também auxiliará no funcionamento dos algoritmos de classificação.
+
+```{r fator de diagnosis}
+
+#convertendo de char para factor
+
+dados$diagnosis <- factor(dados$diagnosis, levels = c("B","M"), labels = c("Benigno", "Maligno"))
+str(dados$diagnosis)
+
+```
+Se fizermos novamente a descrição estatística dos dados, será possível ver que a variável diagnosis terá resultados mais interessantes.
+
+```{r dados estatisticos}
+
+summary(dados$diagnosis)
+
+```
+
+Nas descrições estatísticas, é possível ver que os valores estão em escalas completamentes diferentes, alguns iniciam-se em 0, outros em 185. Essa falta de normalização pode afetar o desempenho do algoritmo de classificação, fazendo com que algumas variáveis acabem recebendo mais importância do que outras nos cálculos. Pode-se corrigir esse problema através da normalização, que consiste em aplicar o seguinte cálculo ao valor x: (x - min(x)) / (max(x) - min(x)), esse cálculo retornará todos os valores em uma escala de 0 a 1.
+
+
+```{r criacao da funcao normalizacao}
+
+#Criação da função de normalização
+f_normalizacao <- function(x){
+  return((x - min(x))/(max(x)-min(x)))
+}
+
+```
+
+Após a criação da função, é necessário aplicar a função aos dados do dataframe.
+
+```{r aplicacao da normalizacao}
+
+#Aplicação da normalização em todos os dados numéricos do dataframe.
+dados_norm <- as.data.frame(lapply(dados[2:31], f_normalizacao))
+summary(dados_norm)
+
+```
+Também é importante verificar se existem dados nulos, para que os mesmos sejam tratados.
+
+```{r checar dados nulos}
+
+anyNA(dados_norm)
+
+```
+
+
+# Machine Learning
+
+Após os tratamentos necessários, já é possível aplicar os dados ao algoritmo de machine learning.
+
+### Treino do modelo
+
+Para que se treine o modelo, é necessária a separação dos dados em amostras de treino e teste, sendo a de treino para efetivamente treinar o modelo e a de teste para validar se o modelo responde bem para dados que nunca tenham sido apresentados antes. Essa divisão de dados deve ser feita de forma aleatória, para que não haja viés no treino. Utilizarei uma proporção de 70% para treino e 30% para teste.
+
+```{r split treino teste}
+
+#Split dos dados de treino e teste
+set.seed(2021)
+dt = sort(sample(nrow(dados_norm), nrow(dados_norm) * 0.7))
+treino <- dados_norm[dt,]
+teste <- dados_norm[-dt,]
+
+```
+
+Também é necessário, no algoritmo K-Nearest Neighbors, apresentar variáveis de labels, para que os resultados previstos sejam comparados aos resultados reais.
+
+```{r labels}
+
+#Labels para comparação
+treino_labels <- dados[dt, 1]
+teste_labels <- dados[-dt, 1]
+
+```
+
+Tendo todas essas variáveis preparadas, já é possível treinar o modelo KNN. No modelo KNN, é necessário apresentar um número de parâmetro K. Esse parâmetro é a quantidade de menores distâncias que o algoritmo irá utilizar para comparar e decidir em qual classe os dados se encontram. Utilizarei 20, mas explorarei outras opções em sequência. 
+
+```{r treino modelo}
+
+#Treino do modelo knn
+modelo <- knn(train = treino, test = teste, cl = treino_labels, k=20)
+
+```
+
+### Avaliação de performance do modelo
+
+Após o treino do modelo, é importante avaliar qual foi a performance do modelo e para isso utilizarei uma matriz de confusão para verificar se os valores previstos estão de acordo com os valores reais.
+
+```{r matriz de confusao}
+
+#matriz de confusão
+tab <- table(modelo, teste_labels)
+tab
+
+```
+No nosso caso, o modelo, quando a classificação era benigna, acertou 100%. Já na previsão dos casos em que o câncer era maligno, o modelo acabou prevendo 10 erroneamente, pois foram classificados como benignos, quando deveriam ser malignos.
+
+Para testar a acurácia do modelo, o cálculo é bem simples, pois trata-se da soma dos acertos dividida pelo total de dados.
+
+```{r acurácia}
+
+#Acurácia do modelo
+acuracia <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
+acuracia(tab)
+
+```
+
+O modelo obteve uma acurácia de 94%. É uma excelente acurácia, e esse valor sempre depende do seu objetivo. A acurácia de um modelo deve estar dentro do range pré-definido pelo cientista de dados.
+
+
+### Otimização do modelo
+
+É possível que o modelo seja otimizado substituindo a normalização dos dados por uma padronização, ou até mesmo testando outros valores para o parâmetro K. Testarei o desempenho do algoritmo caso os dados fossem padronizados.
+Os dados normalizados, como vimos anteriormente, criam uma escala de 0 a 1. Já a padronização altera a média dos dados para 0 com desvio padrão 1.
+
+
+```{r padronização dos dados}
+
+#padronização do z score
+dados_padr <- as.data.frame(scale(dados[-1]))
+summary(dados_padr)
+
+```
+
+```{r}
+str(dados_padr)
+```
+
+
+O processo de separação dos dados de treino e teste devem ser repetidos para que o novo modelo seja criado e avaliado.
+
+```{r separacao treino e teste dados padronizados}
+
+#separação dos dados de treino e teste
+dt_padr <- sort(sample(nrow(dados_padr), nrow(dados_padr)*0.7))
+treino_padr <- dados_padr[dt_padr,]
+teste_padr <- dados_padr[-dt_padr,]
+
+```
+
+```{r labels 2}
+
+#Labels para comparação
+treino_labels2 <- dados[dt_padr, 1]
+teste_labels2 <- dados[-dt_padr, 1]
+
+```
+
+
+```{r treino modelo com dados padronizados}
+
+#treino do modelo com os novos dados
+modelo2 <- knn(treino_padr, teste_padr, treino_labels2, k = 20)
+
+```
+
+```{r matriz de confusao 2}
+
+tab2 <- table(modelo, teste_labels2)
+tab2
+```
+```{r acuracia do novo modelo}
+
+#Acurácia do modelo
+acuracia(tab2)
+
+```
+
+Perceba que a acurácia do novo modelo está muito inferior ao modelo que utiliza os dados padronizados, portanto, utilizarei o modelo inicial para variar o parâmetro K e observar os resultados das taxas de erro.
+
+### Taxas de erro em função da variação do parâmetro K
+
+Utilizarei a taxa de erro médio para apresentar na avaliação abaixo. Irei considerar também a variação de K de 1 a 25.
+
+```{r taxa de erro}
+
+### Calculo da taxa de erro para cada K
+prev = NULL
+taxa_erro = NULL
+suppressWarnings(
+  for(i in 1:25){
+    set.seed(2021)
+    prev = knn(train = treino, test = teste, cl = treino_labels, k = i)
+    taxa_erro[i] = mean(dados$diagnosis != prev)
+  }
+)
+
+```
+
+
+```{r taxas de erro em funcao do k}
+
+#criacao do dataframe com taxas de erro em funcao dos valores de k
+k_values <- 1:25
+df_erro <- data.frame(taxa_erro, k_values)
+df_erro
+
+```
+
+Com todos os dados armazenados, o ideal é apresentá-los em um gráfico de linhas para melhor entendimento.
+
+```{r plot erros}
+
+ggplot(df_erro, aes(x = k_values, y = taxa_erro)) +
+  geom_point() +
+  geom_line(lty = "dotted", color = 'blue')
+```
+
+Através do gráfico acima, é possível ver que conforme o número de K aumenta, menor a taxa de erro. E claramente é possível identificar que a menor taxa de erro do modelo ocorre quando o valor de K é 22.
+
+
+# Conclusão
+
+### Comentários
+Decidi realizar esse projeto de análise para praticar a utilização de dados no algoritmo KNN. Apesar dos dados não precisarem de muito tratamento, esse foi o meu primeiro modelo de machine learning de classificação em que eu procurei realizar o processo sozinho do início ao fim após alguns estudos. Estou bem orgulhoso do resultado obtido e dos conhecimentos adquiridos, é claro.
+
+### Contatos
+
+**Linkedin:** [Alyster Fernandes](https://www.linkedin.com/in/alysterfernandes/)
+**GitHub:** [AlysterF](https://github.com/AlysterF)
+**Tableau:** [alyster.fernandes](https://public.tableau.com/profile/alyster.fernandes)
